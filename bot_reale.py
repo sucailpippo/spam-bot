@@ -1,4 +1,4 @@
- import asyncio
+import asyncio
 import os
 import time
 from flask import Flask
@@ -646,8 +646,9 @@ async def message_router(event):
 # --- AVVIO PRINCIPALE ---
 async def main():
     asyncio.create_task(background_workers())
-    print("🤖 Bot avviato: timer 24h visibile solo nel pannello admin in tempo reale!")
+    print("🤖 Bot avviato correttamente su Render!")
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    bot.run_until_complete(main())
+    main_loop = asyncio.get_event_loop()
+    main_loop.run_until_complete(main())
